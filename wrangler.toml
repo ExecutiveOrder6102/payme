@@ -1,0 +1,34 @@
+name = "payme"
+compatibility_date = "2024-01-01"
+main = "src/index.ts"
+
+[vars]
+PRICE_SATS = "1000"
+# OWNER_PUBKEY = ""
+# Cloudflare Turnstile Test Keys (Replace with real keys in production)
+# TURNSTILE_SITE_KEY = "1x00000000000000000000AA"
+# TURNSTILE_SECRET_KEY = "1x00000000000000000000AA"
+
+[[kv_namespaces]]
+binding = "PAYME_KV"
+id = "af0bec83c2e74463ab009c45650d9218"
+preview_id = "82b12ba9dc56488db1faef0392d82a0c"
+
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = true
+persist = true
+head_sampling_rate = 1
+
+[[routes]]
+pattern = "contact.plimbley.me"
+custom_domain = true
