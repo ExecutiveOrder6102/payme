@@ -19,10 +19,41 @@ app.get('/', (c) => {
 })
 
 app.post('/api/invoice', async (c) => {
-    const { name, contact, message, 'cf-turnstile-response': token } = await c.req.json()
+    const body = await c.req.json()
+    let { name, contact, message, 'cf-turnstile-response': token } = body
 
+    // Type validation
+    if (typeof name !== 'string' || typeof contact !== 'string' || typeof message !== 'string') {
+        return c.json({ error: 'Invalid field types' }, 400)
+    }
+
+    // Trim whitespace and normalize
+    name = name.trim().replace(/\s+/g, ' ')
+    contact = contact.trim().replace(/\s+/g, ' ')
+    message = message.trim().replace(/\s+/g, ' ')
+
+    // Check for empty fields after trimming
     if (!name || !contact || !message) {
         return c.json({ error: 'Missing fields' }, 400)
+    }
+
+    // Field length validation to ensure total stays under 639 bytes
+    // Format is: "Message from {name} ({contact}): {message}"
+    // So we need: 14 + name + 2 + contact + 3 + message < 639
+    if (name.length > 50) {
+        return c.json({ error: 'Name is too long (max 50 characters)' }, 400)
+    }
+    if (contact.length > 100) {
+        return c.json({ error: 'Contact details are too long (max 100 characters)' }, 400)
+    }
+    if (message.length > 450) {
+        return c.json({ error: 'Message is too long (max 450 characters)' }, 400)
+    }
+
+    // Check for control characters and other suspicious content
+    const hasControlChars = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(name + contact + message)
+    if (hasControlChars) {
+        return c.json({ error: 'Invalid characters detected' }, 400)
     }
 
     const nwcUri = c.env.NWC_URI
