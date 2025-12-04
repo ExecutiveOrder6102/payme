@@ -31,7 +31,7 @@ export const html = (siteKey: string, price: string) => `
           <label class="block text-sm font-medium text-gray-300 mb-1">Message</label>
           <textarea id="message" required rows="4" class="w-full bg-gray-700 border border-gray-600 rounded-lg p-2.5 focus:ring-2 focus:ring-purple-500 outline-none transition"></textarea>
         </div>
-        <div class="cf-turnstile" data-sitekey="${siteKey}"></div>
+        <div class="cf-turnstile" data-sitekey="${siteKey}" data-size="flexible"></div>
         <button type="submit" class="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-bold py-3 rounded-lg transition transform hover:scale-[1.02]">
           Pay & Send
         </button>
