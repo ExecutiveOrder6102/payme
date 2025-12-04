@@ -4,8 +4,13 @@ main = "src/index.ts"
 
 [vars]
 PRICE_SATS = "1000"
-# OWNER_PUBKEY = ""
-# Cloudflare Turnstile Test Keys (Replace with real keys in production)
+
+# The below can be generated with npx tsx scripts/generate-keys.ts
+# APP_PRIVKEY = "" # app private key in hex format
+# OWNER_PUBKEY = "" # destination pubkey in hex format
+
+# NWC_URI = "" # Set in cloudflare dashboard as a secret
+# Cloudflare Turnstile Test Keys for local development
 # TURNSTILE_SITE_KEY = "1x00000000000000000000AA"
 # TURNSTILE_SECRET_KEY = "1x00000000000000000000AA"
 
