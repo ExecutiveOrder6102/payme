@@ -30,9 +30,13 @@ export const html = (siteKey: string, price: string) => `
         <div>
           <label class="block text-sm font-medium text-gray-300 mb-1">Message</label>
           <textarea id="message" required rows="4" class="w-full bg-gray-700 border border-gray-600 rounded-lg p-2.5 focus:ring-2 focus:ring-purple-500 outline-none transition"></textarea>
+          <div class="flex justify-between items-center mt-1">
+            <p id="char-counter" class="text-xs text-gray-500"></p>
+            <p id="char-warning" class="text-xs text-red-400 hidden">Message too long!</p>
+          </div>
         </div>
         <div class="cf-turnstile" data-sitekey="${siteKey}" data-size="flexible"></div>
-        <button type="submit" class="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-bold py-3 rounded-lg transition transform hover:scale-[1.02]">
+        <button type="submit" id="submit-btn" class="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-bold py-3 rounded-lg transition transform hover:scale-[1.02]">
           Pay & Send
         </button>
       </form>
@@ -102,113 +106,167 @@ export const html = (siteKey: string, price: string) => `
     const timerDisplay = document.getElementById('timer');
     const expiredStep = document.getElementById('expired-step');
     
+    const nameInput = document.getElementById('name');
+    const contactInput = document.getElementById('contact');
+    const messageInput = document.getElementById('message');
+    const charCounter = document.getElementById('char-counter');
+    const charWarning = document.getElementById('char-warning');
+    const submitBtn = document.getElementById('submit-btn');
+    
+    const MAX_DESCRIPTION_BYTES = 639;
+    
     let checkInterval;
     let countdownInterval;
 
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const name = document.getElementById('name').value;
-      const contact = document.getElementById('contact').value;
-      const message = document.getElementById('message').value;
+    // Calculate total description length
+    function calculateDescriptionLength() {
+      const name = nameInput.value;
+      const contact = contactInput.value;
+      const message = messageInput.value;
+      const description = 'Message from ' + name + ' (' + contact + '): ' + message;
+      return new TextEncoder().encode(description).length;
+    }
 
-      const btn = form.querySelector('button');
-      btn.disabled = true;
-      btn.textContent = 'Generating Invoice...';
+    // Update character counter
+    function updateCharCounter() {
+      const bytes = calculateDescriptionLength();
+      const remaining = MAX_DESCRIPTION_BYTES - bytes;
+      
+      charCounter.textContent = bytes + '/639 bytes';
 
-      try {
-        const res = await fetch('/api/invoice', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            name, 
-            contact, 
-            message,
-            'cf-turnstile-response': new FormData(form).get('cf-turnstile-response')
-          })
-        });
-        const data = await res.json();
-        
-        if (data.error) throw new Error(data.error);
+if (remaining < 0) {
+  charCounter.classList.add('text-red-400');
+  charCounter.classList.remove('text-gray-500');
+  charWarning.classList.remove('hidden');
+  submitBtn.disabled = true;
+  submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
+} else if (remaining < 50) {
+  charCounter.classList.add('text-yellow-400');
+  charCounter.classList.remove('text-gray-500', 'text-red-400');
+  charWarning.classList.add('hidden');
+  submitBtn.disabled = false;
+  submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+} else {
+  charCounter.classList.add('text-gray-500');
+  charCounter.classList.remove('text-yellow-400', 'text-red-400');
+  charWarning.classList.add('hidden');
+  submitBtn.disabled = false;
+  submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+}
+    }
 
-        showInvoice(data.payment_request, data.payment_hash);
-      } catch (err) {
-        alert('Error: ' + err.message);
-        btn.disabled = false;
-        btn.textContent = 'Pay & Send';
-      }
+// Add event listeners for real-time validation
+nameInput.addEventListener('input', updateCharCounter);
+contactInput.addEventListener('input', updateCharCounter);
+messageInput.addEventListener('input', updateCharCounter);
+
+// Initialize counter
+updateCharCounter();
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = nameInput.value;
+  const contact = contactInput.value;
+  const message = messageInput.value;
+
+  const btn = form.querySelector('button');
+  btn.disabled = true;
+  btn.textContent = 'Generating Invoice...';
+
+  try {
+    const res = await fetch('/api/invoice', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name,
+        contact,
+        message,
+        'cf-turnstile-response': new FormData(form).get('cf-turnstile-response')
+      })
     });
+    const data = await res.json();
 
-    function showInvoice(invoice, hash) {
-      formStep.classList.add('hidden');
-      invoiceStep.classList.remove('hidden');
-      
-      new QRCode(qrcodeDiv, {
-        text: invoice,
-        width: 256,
-        height: 256,
-        correctLevel: QRCode.CorrectLevel.H
-      });
-      
-      invoiceText.textContent = invoice.substring(0, 20) + '...' + invoice.substring(invoice.length - 20);
-      
-      document.getElementById('copy-btn').onclick = () => {
-        navigator.clipboard.writeText(invoice);
-        alert('Copied!');
-      };
+    if (data.error) throw new Error(data.error);
 
-      pollPayment(hash);
-      startTimer();
+    showInvoice(data.payment_request, data.payment_hash);
+  } catch (err) {
+    alert('Error: ' + err.message);
+    btn.disabled = false;
+    btn.textContent = 'Pay & Send';
+  }
+});
+
+function showInvoice(invoice, hash) {
+  formStep.classList.add('hidden');
+  invoiceStep.classList.remove('hidden');
+
+  new QRCode(qrcodeDiv, {
+    text: invoice,
+    width: 256,
+    height: 256,
+    correctLevel: QRCode.CorrectLevel.H
+  });
+
+  invoiceText.textContent = invoice.substring(0, 20) + '...' + invoice.substring(invoice.length - 20);
+
+  document.getElementById('copy-btn').onclick = () => {
+    navigator.clipboard.writeText(invoice);
+    alert('Copied!');
+  };
+
+  pollPayment(hash);
+  startTimer();
+}
+
+function startTimer() {
+  let timeLeft = 60 * 60; // 1 hour in seconds
+
+  function updateDisplay() {
+    const minutes = Math.floor(timeLeft / 60);
+    const seconds = timeLeft % 60;
+    timerDisplay.textContent = minutes.toString().padStart(2, '0') + ':' + seconds.toString().padStart(2, '0');
+  }
+
+  updateDisplay();
+
+  countdownInterval = setInterval(() => {
+    timeLeft--;
+    updateDisplay();
+
+    if (timeLeft <= 0) {
+      clearInterval(countdownInterval);
+      clearInterval(checkInterval);
+      showExpired();
     }
+  }, 1000);
+}
 
-    function startTimer() {
-      let timeLeft = 60 * 60; // 1 hour in seconds
-      
-      function updateDisplay() {
-        const minutes = Math.floor(timeLeft / 60);
-        const seconds = timeLeft % 60;
-        timerDisplay.textContent = minutes.toString().padStart(2, '0') + ':' + seconds.toString().padStart(2, '0');
+function showExpired() {
+  invoiceStep.classList.add('hidden');
+  expiredStep.classList.remove('hidden');
+}
+
+function pollPayment(hash) {
+  checkInterval = setInterval(async () => {
+    try {
+      const res = await fetch('/api/check/' + hash);
+      const data = await res.json();
+      if (data.paid) {
+        clearInterval(checkInterval);
+        clearInterval(countdownInterval);
+        showSuccess();
       }
-
-      updateDisplay();
-
-      countdownInterval = setInterval(() => {
-        timeLeft--;
-        updateDisplay();
-
-        if (timeLeft <= 0) {
-          clearInterval(countdownInterval);
-          clearInterval(checkInterval);
-          showExpired();
-        }
-      }, 1000);
+    } catch (e) {
+      console.error(e);
     }
+  }, 3000);
+}
 
-    function showExpired() {
-      invoiceStep.classList.add('hidden');
-      expiredStep.classList.remove('hidden');
-    }
-
-    function pollPayment(hash) {
-      checkInterval = setInterval(async () => {
-        try {
-          const res = await fetch('/api/check/' + hash);
-          const data = await res.json();
-          if (data.paid) {
-            clearInterval(checkInterval);
-            clearInterval(countdownInterval);
-            showSuccess();
-          }
-        } catch (e) {
-          console.error(e);
-        }
-      }, 3000);
-    }
-
-    function showSuccess() {
-      invoiceStep.classList.add('hidden');
-      successStep.classList.remove('hidden');
-    }
-  </script>
-</body>
-</html>
-`
+function showSuccess() {
+  invoiceStep.classList.add('hidden');
+  successStep.classList.remove('hidden');
+}
+</script>
+  </body>
+  </html>
+    `

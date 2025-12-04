@@ -50,10 +50,20 @@ app.post('/api/invoice', async (c) => {
         return c.json({ error: 'Invalid CAPTCHA' }, 403)
     }
 
+    // Validate description length (BOLT 11 limit is 639 bytes)
+    const description = `Message from ${name} (${contact}): ${message}`
+    const descriptionBytes = new TextEncoder().encode(description).length
+    const MAX_DESCRIPTION_BYTES = 639
+
+    if (descriptionBytes > MAX_DESCRIPTION_BYTES) {
+        const overflow = descriptionBytes - MAX_DESCRIPTION_BYTES
+        return c.json({
+            error: `Message is too long. Please shorten your message by ${overflow} bytes (approximately ${overflow} characters).`
+        }, 400)
+    }
+
     try {
         const nwc = new NWCClient(nwcUri)
-        // Embed message details directly in the invoice description
-        const description = `Message from ${name} (${contact}): ${message}`
         const invoice = await nwc.makeInvoice(price, description)
 
         return c.json(invoice)
