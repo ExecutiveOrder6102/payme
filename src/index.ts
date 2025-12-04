@@ -2,25 +2,12 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { html } from './html'
 import { NWCClient } from './nwc'
-import { finalizeEvent, getPublicKey, nip04, SimplePool } from 'nostr-tools'
 
 type Bindings = {
-    PAYME_KV: KVNamespace
     NWC_URI: string
     PRICE_SATS: string
-    OWNER_PUBKEY: string
-    APP_PRIVKEY: string
     TURNSTILE_SITE_KEY: string
     TURNSTILE_SECRET_KEY: string
-}
-
-function hexToBytes(hex: string): Uint8Array {
-    if (hex.length % 2 !== 0) throw new Error('Invalid hex string')
-    const bytes = new Uint8Array(hex.length / 2)
-    for (let i = 0; i < bytes.length; i++) {
-        bytes[i] = parseInt(hex.substr(i * 2, 2), 16)
-    }
-    return bytes
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -32,10 +19,41 @@ app.get('/', (c) => {
 })
 
 app.post('/api/invoice', async (c) => {
-    const { name, contact, message, 'cf-turnstile-response': token } = await c.req.json()
+    const body = await c.req.json()
+    let { name, contact, message, 'cf-turnstile-response': token } = body
 
+    // Type validation
+    if (typeof name !== 'string' || typeof contact !== 'string' || typeof message !== 'string') {
+        return c.json({ error: 'Invalid field types' }, 400)
+    }
+
+    // Trim whitespace and normalize
+    name = name.trim().replace(/\s+/g, ' ')
+    contact = contact.trim().replace(/\s+/g, ' ')
+    message = message.trim().replace(/\s+/g, ' ')
+
+    // Check for empty fields after trimming
     if (!name || !contact || !message) {
         return c.json({ error: 'Missing fields' }, 400)
+    }
+
+    // Field length validation to ensure total stays under 639 bytes
+    // Format is: "Message from {name} ({contact}): {message}"
+    // So we need: 14 + name + 2 + contact + 3 + message < 639
+    if (name.length > 50) {
+        return c.json({ error: 'Name is too long (max 50 characters)' }, 400)
+    }
+    if (contact.length > 100) {
+        return c.json({ error: 'Contact details are too long (max 100 characters)' }, 400)
+    }
+    if (message.length > 450) {
+        return c.json({ error: 'Message is too long (max 450 characters)' }, 400)
+    }
+
+    // Check for control characters and other suspicious content
+    const hasControlChars = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(name + contact + message)
+    if (hasControlChars) {
+        return c.json({ error: 'Invalid characters detected' }, 400)
     }
 
     const nwcUri = c.env.NWC_URI
@@ -63,35 +81,21 @@ app.post('/api/invoice', async (c) => {
         return c.json({ error: 'Invalid CAPTCHA' }, 403)
     }
 
+    // Validate description length (BOLT 11 limit is 639 bytes)
+    const description = `Message from ${name} (${contact}): ${message}`
+    const descriptionBytes = new TextEncoder().encode(description).length
+    const MAX_DESCRIPTION_BYTES = 639
+
+    if (descriptionBytes > MAX_DESCRIPTION_BYTES) {
+        const overflow = descriptionBytes - MAX_DESCRIPTION_BYTES
+        return c.json({
+            error: `Message is too long. Please shorten your message by ${overflow} bytes (approximately ${overflow} characters).`
+        }, 400)
+    }
+
     try {
         const nwc = new NWCClient(nwcUri)
-        const description = `Message from ${name}`
         const invoice = await nwc.makeInvoice(price, description)
-
-        // Check if invoice already exists
-        const existing = await c.env.PAYME_KV.get(invoice.payment_hash)
-        let shouldUpdate = true
-
-        if (existing) {
-            const existingData = JSON.parse(existing)
-            if (existingData.status === 'paid') {
-                shouldUpdate = false
-                console.log('Invoice already paid, skipping KV overwrite')
-            }
-        }
-
-        if (shouldUpdate) {
-            // Store message in KV with payment hash as key
-            // We store it as pending
-            const data = {
-                name,
-                contact,
-                message,
-                status: 'pending',
-                created_at: Date.now()
-            }
-            await c.env.PAYME_KV.put(invoice.payment_hash, JSON.stringify(data), { expirationTtl: 3600 }) // 1 hour expiry
-        }
 
         return c.json(invoice)
     } catch (err: any) {
@@ -101,81 +105,22 @@ app.post('/api/invoice', async (c) => {
 
 app.get('/api/check/:hash', async (c) => {
     const hash = c.req.param('hash')
-    const dataStr = await c.env.PAYME_KV.get(hash)
-
-    if (!dataStr) {
-        return c.json({ error: 'Invoice not found or expired' }, 404)
-    }
-
-    const data = JSON.parse(dataStr)
-    if (data.status === 'paid') {
-        return c.json({ paid: true })
-    }
-
     const nwcUri = c.env.NWC_URI
+
+    if (!nwcUri) {
+        return c.json({ error: 'Server configuration error (NWC_URI)' }, 500)
+    }
+
     try {
         console.log('Checking payment for hash:', hash)
         const nwc = new NWCClient(nwcUri)
         const status = await nwc.lookupInvoice(hash)
         console.log('Payment status:', status)
 
-        if (status.paid) {
-            // Update status
-            data.status = 'paid'
-            await c.env.PAYME_KV.put(hash, JSON.stringify(data))
-
-            // Send DM in background
-            c.executionCtx.waitUntil(sendDM(c.env, data))
-
-            return c.json({ paid: true })
-        }
-
-        return c.json({ paid: false })
+        return c.json({ paid: status.paid })
     } catch (err: any) {
         return c.json({ error: err.message }, 500)
     }
 })
-
-async function sendDM(env: Bindings, data: any) {
-    if (!env.APP_PRIVKEY || !env.OWNER_PUBKEY) {
-        console.error('Missing Nostr keys for DM')
-        return
-    }
-
-    const sk = hexToBytes(env.APP_PRIVKEY)
-    const pk = getPublicKey(sk)
-    const recipient = env.OWNER_PUBKEY
-
-    const content = `New Paid Message!
-From: ${data.name}
-Contact: ${data.contact}
-
-${data.message}`
-
-    // Encrypt content
-    const encrypted = await nip04.encrypt(sk, recipient, content)
-
-    const event = {
-        kind: 4,
-        created_at: Math.floor(Date.now() / 1000),
-        tags: [['p', recipient]],
-        content: encrypted,
-        pubkey: pk,
-    }
-
-    const signedEvent = finalizeEvent(event, sk)
-
-    // Publish to a few default relays
-    const relays = ['wss://relay.damus.io', 'wss://relay.primal.net', 'wss://nos.lol']
-
-    try {
-        const pool = new SimplePool()
-        await Promise.any(pool.publish(relays, signedEvent))
-        pool.close(relays)
-        console.log('DM sent successfully')
-    } catch (err) {
-        console.error('Failed to send DM:', err)
-    }
-}
 
 export default app

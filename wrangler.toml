@@ -1,23 +1,15 @@
 name = "payme"
 compatibility_date = "2024-01-01"
 main = "src/index.ts"
+preview_urls = true
 
 [vars]
 PRICE_SATS = "1000"
 
-# The below can be generated with npx tsx scripts/generate-keys.ts
-# APP_PRIVKEY = "" # app private key in hex format
-# OWNER_PUBKEY = "" # destination pubkey in hex format
-
 # NWC_URI = "" # Set in cloudflare dashboard as a secret
 # Cloudflare Turnstile Test Keys for local development
 # TURNSTILE_SITE_KEY = "1x00000000000000000000AA"
-# TURNSTILE_SECRET_KEY = "1x00000000000000000000AA"
-
-[[kv_namespaces]]
-binding = "PAYME_KV"
-id = "af0bec83c2e74463ab009c45650d9218"
-preview_id = "82b12ba9dc56488db1faef0392d82a0c"
+# TURNSTILE_SECRET_KEY = "1x0000000000000000000000000000000AA"
 
 [observability]
 enabled = false
