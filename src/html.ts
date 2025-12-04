@@ -59,7 +59,7 @@ export const html = (siteKey: string, price: string) => `
       </div>
       <div id="timer-container" class="text-center space-y-2">
         <p class="text-red-400 font-bold" id="timer">15:00</p>
-        <p class="text-xs text-gray-500">Please pay within 15 minutes. Do not pay if the timer has expired, as your message will not be sent.</p>
+        <p class="text-xs text-gray-500">Please don't refresh the page or you'll lose your invoice. The invoice is valid for 1 hour, you can pay this async and I will still receive your message.</p>
       </div>
       
       <div class="bg-yellow-900/30 border border-yellow-600/50 rounded-lg p-3 text-sm text-yellow-200">
@@ -161,7 +161,7 @@ export const html = (siteKey: string, price: string) => `
     }
 
     function startTimer() {
-      let timeLeft = 15 * 60; // 15 minutes in seconds
+      let timeLeft = 60 * 60; // 1 hour in seconds
       
       function updateDisplay() {
         const minutes = Math.floor(timeLeft / 60);
